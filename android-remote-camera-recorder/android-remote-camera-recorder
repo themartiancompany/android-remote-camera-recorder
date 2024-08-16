@@ -50,6 +50,7 @@ _android-remote-camera_options(){
       "${_length}"
     -d
     -t
+      "${_target_host}"
     -l
       "${_local_port}"
     -r
@@ -82,15 +83,15 @@ _record_options(){
 _android_remote_camera_recorder() {
   local \
     _target_host="${1}" \
-    _camera_app="${1}" \
-    _recorder_app="${2}" \
-    _resolution="${3}" \
-    _rate="${4}" \
-    _length="${5}" \
-    _buffer="${6}" \
-    _local_port="${7}" \
-    _remote_port="${8}" \
-    _out="${9}" \
+    _camera_app="${2}" \
+    _recorder_app="${3}" \
+    _resolution="${4}" \
+    _rate="${5}" \
+    _length="${6}" \
+    _buffer="${7}" \
+    _local_port="${8}" \
+    _remote_port="${9}" \
+    _out="${10}" \
     _camera=() \
     _camera_opts=() \
     _recorder_opts=() \
@@ -179,6 +180,10 @@ _set_overrides() {
     "recording" \
     "date" \
     "$(_get_date_human)"
+  _set_override \
+    "target" \
+    "host" \
+    ""
   _set_override \
     "camera" \
     "app" \
@@ -293,7 +298,7 @@ _requirements
 # shellcheck disable=SC2034
 while \
   getopts \
-    'p:R:b:L:k:l:r:cvh?' \
+    't:p:R:b:L:k:l:r:cvh?' \
     arg; do
   case \
     "${arg}" in
@@ -329,11 +334,11 @@ shift \
   _usage \
     1
 out_file="${1}"
+_set_overrides
 if [[ "${target_host}" == "" ]]; then
   _msg_error \
     "You need to specify a target host"
 fi
-_set_overrides
 _config_user_init \
   "$(_get "app" "name")"
 _show_config
