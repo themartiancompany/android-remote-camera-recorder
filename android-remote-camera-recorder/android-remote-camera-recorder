@@ -63,7 +63,7 @@ _record_options(){
     "${_recorder_app}"
   )
   _recorder_opts+=(
-    -l
+    -L
       "${_length}" 
     -k
       "${_buffer}"
