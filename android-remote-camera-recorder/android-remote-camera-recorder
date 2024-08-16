@@ -1,0 +1,353 @@
+#!/usr/bin/env bash
+#
+# SPDX-License-Identifier: AGPL-3.0
+
+_bin="$( \
+  dirname \
+    "$( \
+      command \
+        -v \
+	  "env")")"
+_lib="${_bin}/../lib"
+_share="${_bin}/../share"
+source \
+  "${_lib}/libcrash-bash/crash-bash"
+
+# Check all required programs
+# are available
+_requirements() {
+  _check_cmd \
+    'record' \
+    'record-tools'
+  _check_cmd \
+    'android-remote-camera' \
+    'android-remote-camera'
+}
+
+# shellcheck disable=SC2034
+_global_variables() {
+  recording_date=""
+  target_host=""
+  recording_resolution=""
+  camera_app=""
+  recorder_app=""
+  recording_length=""
+  recording_buffer=""
+  local_port=""
+  remote_port=""
+  out_file=""
+  bit_rate=""
+  color=""
+  quiet=""
+}
+
+_android-remote-camera_options(){
+  _camera+=(
+    "${_camera_app}"
+  )
+  _camera_opts+=(
+    -L
+      "${_length}"
+    -d
+    -t
+    -l
+      "${_local_port}"
+    -r
+      "${_remote_port}"
+  )
+}
+
+_record_options(){
+  _recorder+=(
+    "${_recorder_app}"
+  )
+  _recorder_opts+=(
+    -l
+      "${_length}" 
+    -k
+      "${_buffer}"
+    -b
+      "${_rate}"
+  )
+}
+
+# Record from remote camera
+# $1: camera app
+# $2: recorder app
+# $3: recording resolution
+# $4: video bitrate
+# $5: recording length
+# $6: buffer length
+# $7: out file
+_android_remote_camera_recorder() {
+  local \
+    _target_host="${1}" \
+    _camera_app="${1}" \
+    _recorder_app="${2}" \
+    _resolution="${3}" \
+    _rate="${4}" \
+    _length="${5}" \
+    _buffer="${6}" \
+    _local_port="${7}" \
+    _remote_port="${8}" \
+    _out="${9}" \
+    _camera=() \
+    _camera_opts=() \
+    _recorder_opts=() \
+    _recorder=() \
+    _pids=()
+  if [[ "${quiet}" != "y" ]]; then
+    _recorder_opts+=(
+      -v
+    )
+    _camera_opts+=(
+      -v
+    )
+  fi
+  "_${_camera_app}_options"
+  "_${_recorder_app}_options"
+  _run \
+    "record" \
+    "0" \
+    "async" \
+    "${_recorder[@]}" \
+      "${_recorder_opts[@]}" \
+      "${_out}" || \
+    true
+  "${_camera[@]}" \
+      "${_camera_opts[@]}" || \
+    true
+  _pids=(
+    "$(_get_pid \
+         "record")"
+  )
+  wait \
+    "${_pids[@]}" || \
+    true
+  _msg_info \
+    "recording ended, quitting."
+}
+
+_resolution_auto_detect() {
+  local \
+    _resolution
+  if [[ $(command -v 'sudo') != "" ]]; then
+    _resolution="$( \
+      sudo \
+        wm \
+          size | \
+        tail \
+          -n \
+          1 | \
+	  awk \
+	    '{print $3}')"
+  else
+    _resolution='720x1280'
+  fi
+  echo \
+    "${_resolution}"
+}
+
+_camera_app_auto_detect() {
+  local \
+    _os
+  _os="$( \
+    uname \
+      -o)"
+  if [[ "${_os}" == 'Android' ]]; then
+    echo \
+      'android-remote-camera'
+  fi
+}
+
+_buffer_auto_detect() {
+  _sdk="$( \
+    sdk-version)"
+  if (( "${_sdk}" < 28 )); then
+    echo \
+      "180"
+  else
+    echo \
+      "300"
+  fi
+}
+
+# Set defaults and, if present, overrides
+# from program command line option parameters
+_set_overrides() {
+  _set_override \
+    "recording" \
+    "date" \
+    "$(_get_date_human)"
+  _set_override \
+    "camera" \
+    "app" \
+    "$(_camera_app_auto_detect)"
+  _set_override \
+    "recorder" \
+    "app" \
+    "record"
+  _set_override \
+    "recording" \
+    "resolution" \
+    "$(_resolution_auto_detect)" 
+  _set_override \
+    "bit" \
+    "rate" \
+    "160000" # 420 Kb?
+    # "16000000" # 16 Mb?
+  _set_override \
+    "recording" \
+    "length" \
+    "$(( 10 * 60))" # "$(( 24 * 60 * 60 ))" # 24 hours
+  _set_override \
+    "recording" \
+    "buffer" \
+    "$(_buffer_auto_detect)"
+  _set_override \
+    "local" \
+    "port" \
+    "59111"
+  _set_override \
+    "remote" \
+    "port" \
+    "59001"
+  if [[ -v override_color ]]; then
+    color="${override_color}"
+  elif [[ -z "${color}" ]]; then
+    color="n"
+  fi
+  if [[ -v override_quiet ]]; then
+    quiet="${override_quiet}"
+  elif [[ -z "${quiet}" ]]; then
+    quiet="y"
+  fi
+}
+
+# Shows configuration options.
+_show_config() {
+  _msg_info "${app_name} configuration"
+  _msg_info "           Recording date:   $(_get "recording" "date")"
+  _msg_info "              Target host:   $(_get "target" "host")"
+  _msg_info "               Camera app:   $(_get "camera" "app")"
+  _msg_info "             Recorder app:   $(_get "recorder" "app")"
+  _msg_info "                 Bit rate:   $(_get "bit" "rate")"
+  _msg_info "     Recording resolution:   $(_get "recording" "resolution")"
+  _msg_info "         Recording length:   $(_get "recording" "length")"
+  _msg_info "         Recording buffer:   $(_get "recording" "buffer")"
+  _msg_info "               Local port:   $(_get "local" "port")"
+  _msg_info "              Remote port:   $(_get "remote" "port")"
+  _msg_info "              Output file:   $(_get "out" "file")"
+}
+
+# Show help usage, with an exit status.
+# $1: exit status number.
+_usage() {
+  local \
+    _usage_text
+  IFS='' \
+    read \
+      -r \
+      -d '' \
+      _usage_text << \
+        ENDUSAGETEXT || true
+
+Android camera recorder.
+
+Usage:
+  $(_get "app" "name")
+    [options]
+    (<out_file>)
+  options:
+     -p <camera_app>      Android camera app to launch.
+                          Default: $(_get "camera" "app")
+     -R <recorder_app>    Recorder application to use.
+                          Default: $(_get "recorder" "app")
+     -s <widthxheight>    Recording resolution.
+                          Default: $(_get "recording" "resolution")
+     -b <bitrate>         Video bitrate.
+                          Default: $(_get "bit" "rate").
+     -L <length>          Length of the recording.
+                          Default: $(_get "recording" "length").
+     -k <buffer>          Buffer for the recording.
+                          Default: $(_get "recording" "buffer").
+     -l <local_port>      Local port for the remote camera tunnel.
+                          Default: $(_get "local" "port").
+     -r <remote_port>     Remote port for the remote camera tunnel.
+                          Default: $(_get "remote" "port").
+
+     -h                   This message.
+     -v                   Enable verbose output
+ENDUSAGETEXT
+  _printf \
+    '%s\n' \
+    "${_usage_text}"
+  exit \
+    "${1}"
+}
+
+_globals
+_global_variables
+_requirements
+# shellcheck disable=SC2004
+# shellcheck disable=SC2034
+while \
+  getopts \
+    'p:R:b:L:k:l:r:cvh?' \
+    arg; do
+  case \
+    "${arg}" in
+    t) override_target_host="${OPTARG}" ;;
+    p) override_camera_app="${OPTARG}" ;;
+    R) override_recorder_app="${OPTARG}" ;;
+    b) override_bit_rate="${OPTARG}" ;;
+    L) override_recording_length="${OPTARG}" ;;
+    k) override_recording_buffer="${OPTARG}" ;;
+    l) override_local_port="${OPTARG}" ;;
+    r) override_remote_port="${OPTARG}" ;;
+    c) override_color="y" ;;
+    v) override_quiet="n" ;;
+    h|?) _set_overrides && \
+	 _usage \
+           0 ;;
+    *)
+    _msg_error \
+      "Invalid argument '${arg}'" \
+      0 && \
+    _set_overrides && \
+    _usage \
+      1
+    ;;
+  esac
+done
+shift \
+  $(( \
+    OPTIND - 1 \
+  ))
+(( $# < 1 )) && \
+  _set_overrides && \
+  _usage \
+    1
+out_file="${1}"
+if [[ "${target_host}" == "" ]]; then
+  _msg_error \
+    "You need to specify a target host"
+fi
+_set_overrides
+_config_user_init \
+  "$(_get "app" "name")"
+_show_config
+app_opts=(
+  "${target_host}"
+  "${camera_app}"
+  "${recorder_app}"
+  "${recording_resolution}"
+  "${bit_rate}"
+  "${recording_length}"
+  "${recording_buffer}"
+  "${local_port}"
+  "${remote_port}"
+  "${out_file}"
+)
+_android_remote_camera_recorder \
+  "${app_opts[@]}"
